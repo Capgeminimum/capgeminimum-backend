@@ -1,211 +1,238 @@
-const prisma = require('../models/prismaClient');
+const { db, getNextId, nowIso } = require('../models/mockDb');
 
-function isPowerOfTwo(n) {
-    return n > 0 && (n & (n - 1)) === 0;
+function isPowerOfTwo(value) {
+  return value > 0 && (value & (value - 1)) === 0;
 }
 
-function shuffleArray(array) {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
+function getPlayerById(playerId) {
+  return db.players.find((player) => player.id === playerId) || null;
 }
 
-function groupByRound(games) {
-    const rounds = {};
-    for (const g of games) {
-        if (!rounds[g.round]) rounds[g.round] = [];
-        rounds[g.round].push(g);
+function buildGameView(game) {
+  const player1 = game.player1Id ? getPlayerById(game.player1Id) : null;
+  const player2 = game.player2Id ? getPlayerById(game.player2Id) : null;
+
+  return {
+    id: game.id,
+    player1: player1 ? { id: player1.id, username: player1.username } : null,
+    player2: player2 ? { id: player2.id, username: player2.username } : null,
+    winnerId: game.winnerId,
+    status: game.status
+  };
+}
+
+function groupBracketGames(games) {
+  const rounds = new Map();
+
+  for (const game of games) {
+    if (!rounds.has(game.round)) {
+      rounds.set(game.round, []);
     }
-    return Object.entries(rounds).map(([round, matches]) => ({
-        round: parseInt(round),
-        matches: matches.map((g) => ({
-            matchId: g.id,
-            player1: g.player1 ? { id: g.player1.id, username: g.player1.username } : null,
-            player2: g.player2 ? { id: g.player2.id, username: g.player2.username } : null,
-            winnerId: g.winner ?? null,
-            status: g.status ?? 'pending',
-        })),
+    rounds.get(game.round).push(game);
+  }
+
+  return [...rounds.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([round, matches]) => ({
+      round,
+      matches: matches
+        .sort((a, b) => a.matchIndex - b.matchIndex)
+        .map((game) => buildGameView(game))
     }));
 }
 
-
-
-async function getAllTournaments() {
-    const tournaments = await prisma.tournament.findMany({
-        orderBy: { date: 'desc' },
-    });
-
-    return tournaments.map((t) => ({
-        id: t.id,
-        name: `Tournoi #${t.id}`,
-        status: t.winner ? 'finished' : 'ongoing',
-        playerCount: t.nb_participants,
-        createdAt: t.date,
+function getAllTournaments() {
+  return [...db.tournaments]
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .map((tournament) => ({
+      id: tournament.id,
+      name: tournament.name,
+      status: tournament.status,
+      playerCount: tournament.playerIds.length,
+      createdAt: tournament.createdAt
     }));
 }
 
-async function getTournamentById(tournamentId) {
-    const tournament = await prisma.tournament.findUnique({
-        where: { id: tournamentId },
-    });
+function getTournamentById(tournamentId) {
+  const tournament = db.tournaments.find((item) => item.id === tournamentId);
 
-    if (!tournament) {
-        const error = new Error('Tournament not found');
-        error.statusCode = 404;
-        throw error;
-    }
+  if (!tournament) {
+    const error = new Error('Tournament not found');
+    error.statusCode = 404;
+    throw error;
+  }
 
-    const participants = await prisma.participant.findMany({
-        where: { tournament_id: tournamentId },
-    });
+  const players = tournament.playerIds
+    .map((playerId) => getPlayerById(playerId))
+    .filter(Boolean)
+    .map((player) => ({ id: player.id, username: player.username }));
 
-    const players = await prisma.player.findMany({
-        where: { id: { in: participants.map((p) => p.user_id) } },
-        select: { id: true, username: true },
-    });
+  const bracketGames = db.games
+    .filter((game) => game.tournamentId === tournament.id)
+    .sort((a, b) => a.round - b.round || a.matchIndex - b.matchIndex);
 
-    const games = await prisma.games.findMany({
-        where: { id_tournament: tournamentId },
-        orderBy: { played_at: 'asc' },
-    });
-
-    const playerMap = Object.fromEntries(players.map((p) => [p.id, p]));
-
-    const enrichedGames = games.map((g) => ({
-        ...g,
-        round: g.round ?? 1,
-        player1: playerMap[g.id_player1] ?? null,
-        player2: playerMap[g.id_player2] ?? null,
-        status: g.winner ? 'finished' : 'ongoing',
-    }));
-
-    return {
-        id: tournament.id,
-        name: `Tournoi #${tournament.id}`,
-        status: tournament.winner ? 'finished' : 'ongoing',
-        players,
-        bracket: groupByRound(enrichedGames),
-    };
+  return {
+    id: tournament.id,
+    name: tournament.name,
+    status: tournament.status,
+    players,
+    bracket: groupBracketGames(bracketGames)
+  };
 }
 
-async function createTournament({ name, playerIds }) {
-    if (!isPowerOfTwo(playerIds.length)) {
-        const error = new Error('Player count must be a power of 2 (4, 8, 16...)');
-        error.statusCode = 400;
-        throw error;
-    }
+function createTournament({ name, playerIds }) {
+  if (!Array.isArray(playerIds) || !isPowerOfTwo(playerIds.length)) {
+    const error = new Error('Player count must be a power of 2 (2, 4, 8, 16...)');
+    error.statusCode = 400;
+    throw error;
+  }
 
-    const tournament = await prisma.$transaction(async (tx) => {
-        const createdTournament = await tx.tournament.create({
-            data: {
-                nb_participants: playerIds.length,
-                user_id: 0,
-                winner: '',
-                id_winner: 0,
-                elo_winner: 0,
-            },
-        });
+  const uniquePlayerIds = [...new Set(playerIds)];
+  if (uniquePlayerIds.length !== playerIds.length) {
+    const error = new Error('playerIds must be unique');
+    error.statusCode = 400;
+    throw error;
+  }
 
-        await tx.participant.createMany({
-            data: playerIds.map((id) => ({
-                tournament_id: createdTournament.id,
-                user_id: id,
-            })),
-        });
+  const missingPlayerId = uniquePlayerIds.find((playerId) => !getPlayerById(playerId));
+  if (missingPlayerId) {
+    const error = new Error(`Player ${missingPlayerId} not found`);
+    error.statusCode = 404;
+    throw error;
+  }
 
-        return createdTournament;
-    });
+  const tournament = {
+    id: getNextId('tournament'),
+    name: name && name.trim() ? name.trim() : `Tournoi ${new Date().toISOString().slice(0, 10)}`,
+    status: 'pending',
+    playerIds: uniquePlayerIds,
+    createdAt: nowIso(),
+    winnerId: null
+  };
 
-    return {
-        id: tournament.id,
-        name: name ?? `Tournoi #${tournament.id}`,
+  db.tournaments.push(tournament);
+
+  return {
+    id: tournament.id,
+    name: tournament.name,
+    status: tournament.status,
+    playerCount: tournament.playerIds.length,
+    createdAt: tournament.createdAt
+  };
+}
+
+function startTournament(tournamentId) {
+  const tournament = db.tournaments.find((item) => item.id === tournamentId);
+
+  if (!tournament) {
+    const error = new Error('Tournament not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (tournament.status !== 'pending') {
+    const error = new Error('Tournament is already started');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const players = [...tournament.playerIds];
+  const roundsCount = Math.log2(players.length);
+  const rounds = [];
+
+  for (let roundNumber = 1; roundNumber <= roundsCount; roundNumber += 1) {
+    const matchesCount = players.length / 2 ** roundNumber;
+    const roundGames = [];
+
+    for (let matchIndex = 0; matchIndex < matchesCount; matchIndex += 1) {
+      const game = {
+        id: getNextId('game'),
+        tournamentId: tournament.id,
+        round: roundNumber,
+        matchIndex,
+        player1Id: null,
+        player2Id: null,
+        scorePlayer1: 0,
+        scorePlayer2: 0,
         status: 'pending',
-        playerCount: playerIds.length,
-        createdAt: tournament.date,
-    };
+        winnerId: null,
+        playedAt: nowIso(),
+        nextGameId: null,
+        nextSlot: null,
+        player1OldElo: null,
+        player1NewElo: null,
+        player2OldElo: null,
+        player2NewElo: null
+      };
+
+      db.games.push(game);
+      roundGames.push(game);
+    }
+
+    rounds.push(roundGames);
+  }
+
+  const firstRoundGames = rounds[0];
+  for (let index = 0; index < firstRoundGames.length; index += 1) {
+    const game = firstRoundGames[index];
+    game.player1Id = players[index * 2];
+    game.player2Id = players[index * 2 + 1];
+    game.status = 'ongoing';
+  }
+
+  for (let roundIndex = 0; roundIndex < rounds.length - 1; roundIndex += 1) {
+    const currentRound = rounds[roundIndex];
+    const nextRound = rounds[roundIndex + 1];
+
+    for (let matchIndex = 0; matchIndex < currentRound.length; matchIndex += 1) {
+      const game = currentRound[matchIndex];
+      const nextGame = nextRound[Math.floor(matchIndex / 2)];
+      game.nextGameId = nextGame.id;
+      game.nextSlot = matchIndex % 2 === 0 ? 1 : 2;
+    }
+  }
+
+  tournament.status = 'ongoing';
+
+  return {
+    id: tournament.id,
+    status: tournament.status,
+    bracket: groupBracketGames(db.games.filter((game) => game.tournamentId === tournament.id))
+  };
 }
 
-async function startTournament(tournamentId) {
-    const tournament = await prisma.tournament.findUnique({
-        where: { id: tournamentId },
-    });
-
-    if (!tournament) {
-        const error = new Error('Tournament not found');
-        error.statusCode = 404;
-        throw error;
+function advanceTournamentBracketFromGame(game) {
+  if (!game.tournamentId || !game.winnerId || !game.nextGameId) {
+    if (game.tournamentId && game.winnerId && !game.nextGameId) {
+      const tournament = db.tournaments.find((item) => item.id === game.tournamentId);
+      if (tournament) {
+        tournament.status = 'finished';
+        tournament.winnerId = game.winnerId;
+      }
     }
+    return;
+  }
 
-    const participants = await prisma.participant.findMany({
-        where: { tournament_id: tournamentId },
-    });
+  const nextGame = db.games.find((item) => item.id === game.nextGameId);
+  if (!nextGame) {
+    return;
+  }
 
-    const existingGames = await prisma.games.findFirst({
-        where: { id_tournament: tournamentId },
-    });
+  if (game.nextSlot === 1) {
+    nextGame.player1Id = game.winnerId;
+  } else {
+    nextGame.player2Id = game.winnerId;
+  }
 
-    if (existingGames) {
-        const error = new Error('Tournament is already started');
-        error.statusCode = 400;
-        throw error;
-    }
-
-    const players = await prisma.player.findMany({
-        where: { id: { in: participants.map((p) => p.user_id) } },
-        select: { id: true, username: true },
-    });
-
-    //TODO: Rajouter la logique de Matteo pour mettre les bons joueurs
-    const shuffled = shuffleArray(players);
-
-    const matchesData = [];
-    for (let i = 0; i < shuffled.length; i += 2) {
-        matchesData.push({
-            id_tournament: tournamentId,
-            id_player1: shuffled[i].id,
-            id_player2: shuffled[i + 1].id,
-            score_player1: 0,
-            score_player2: 0,
-            winner: null,
-            round: 1,
-        });
-    }
-
-    await prisma.games.createMany({ data: matchesData });
-
-    const createdGames = await prisma.games.findMany({
-        where: { id_tournament: tournamentId, round: 1 },
-        orderBy: { played_at: 'asc' },
-    });
-
-    const playerMap = Object.fromEntries(players.map((p) => [p.id, p]));
-
-    const bracket = [
-        {
-            round: 1,
-            matches: createdGames.map((g) => ({
-                matchId: g.id,
-                player1: playerMap[g.id_player1] ?? null,
-                player2: playerMap[g.id_player2] ?? null,
-                winnerId: null,
-                status: 'pending',
-            })),
-        },
-    ];
-
-    return {
-        id: tournamentId,
-        status: 'ongoing',
-        bracket,
-    };
+  if (nextGame.player1Id && nextGame.player2Id) {
+    nextGame.status = 'ongoing';
+  }
 }
 
 module.exports = {
-    getAllTournaments,
-    getTournamentById,
-    createTournament,
-    startTournament,
+  getAllTournaments,
+  getTournamentById,
+  createTournament,
+  startTournament,
+  advanceTournamentBracketFromGame
 };

@@ -13,5 +13,4 @@ function elo_adder(eloA, eloB, result) {
 
 }
 
-
-export {elo_adder};
+module.exports = { elo_adder };
