@@ -17,7 +17,7 @@ app.get('/health', (req, res) => {
 // TODO: importer les routes ici au fur et à mesure
 // app.use('/api/players', require('./routes/players.routes'))
 // app.use('/api/games', require('./routes/games.routes'))
-// app.use('/api/tournaments', require('./routes/tournaments.routes'))
+app.use('/api/tournaments', require('./src/routes/tournament.routes'));
 
 // Handler 404
 app.use((req, res) => {
