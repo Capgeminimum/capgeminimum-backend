@@ -1,62 +1,68 @@
-export const getAllTournaments = (req, res) => {
-    return res.status(200).json([
-        { id: 1, name: "Tournoi Mars 2026", status: "ongoing", playerCount: 8, createdAt: "2026-03-15T14:30:00Z" }
-    ])
+const tournamentService = require('../services/tournament.service');
+
+async function getAllTournaments(req, res) {
+    try {
+        const tournaments = await tournamentService.getAllTournaments();
+        return res.status(200).json(tournaments);
+    } catch (error) {
+        console.error('[TournamentController] getAllTournaments:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
 }
 
-export const getTournamentById = (req, res) => {
-    const { id } = req.params
-
-    if (isNaN(id)) {
-        return res.status(400).json({ error: "Invalid tournament id" })
+async function getTournamentById(req, res) {
+    try {
+        const tournamentId = parseInt(req.params.id);
+        const tournament = await tournamentService.getTournamentById(tournamentId);
+        return res.status(200).json(tournament);
+    } catch (error) {
+        if (error.statusCode === 404) {
+            return res.status(404).json({ error: error.message });
+        }
+        console.error('[TournamentController] getTournamentById:', error);
+        return res.status(500).json({ error: 'Internal server error' });
     }
-
-    // TODO: remplacer par tournamentService.getTournament(id)
-    // TODO: si not found → res.status(404).json({ error: "Tournament not found" })
-    return res.status(200).json({
-        id: 1,
-        name: "Tournoi Mars 2026",
-        status: "ongoing",
-        players: [{ id: 1, username: "enoxboo" }],
-        bracket: []
-    })
 }
 
-export const createTournament = (req, res) => {
-    const { name, playerIds } = req.body
+async function createTournament(req, res) {
+    try {
+        const { name, playerIds } = req.body;
 
-    if (!name || !playerIds) {
-        return res.status(400).json({ error: "name and playerIds are required" })
+        if (!Array.isArray(playerIds) || playerIds.length === 0) {
+            return res.status(400).json({ error: 'playerIds is required' });
+        }
+
+        const tournament = await tournamentService.createTournament({ name, playerIds });
+        return res.status(201).json(tournament);
+    } catch (error) {
+        if (error.statusCode === 400) {
+            return res.status(400).json({ error: error.message });
+        }
+        console.error('[TournamentController] createTournament:', error);
+        return res.status(500).json({ error: 'Internal server error' });
     }
-
-    if (!Array.isArray(playerIds)) {
-        return res.status(400).json({ error: "playerIds must be an array" })
-    }
-
-    // TODO: remplacer par tournamentService.createTournament(name, playerIds)
-    // TODO: le service renverra une erreur si playerCount n'est pas une puissance de 2
-    return res.status(201).json({
-        id: 1,
-        name,
-        status: "pending",
-        playerCount: playerIds.length,
-        createdAt: new Date().toISOString()
-    })
 }
 
-export const startTournament = (req, res) => {
-    const { id } = req.params
-
-    if (isNaN(id)) {
-        return res.status(400).json({ error: "Invalid tournament id" })
+async function startTournament(req, res) {
+    try {
+        const tournamentId = parseInt(req.params.id);
+        const result = await tournamentService.startTournament(tournamentId);
+        return res.status(200).json(result);
+    } catch (error) {
+        if (error.statusCode === 404) {
+            return res.status(404).json({ error: error.message });
+        }
+        if (error.statusCode === 400) {
+            return res.status(400).json({ error: error.message });
+        }
+        console.error('[TournamentController] startTournament:', error);
+        return res.status(500).json({ error: 'Internal server error' });
     }
-
-    // TODO: remplacer par tournamentService.startTournament(id)
-    // TODO: si not found → res.status(404).json({ error: "Tournament not found" })
-    // TODO: si déjà started → res.status(400).json({ error: "Tournament already started" })
-    return res.status(200).json({
-        id: 1,
-        status: "ongoing",
-        bracket: []
-    })
 }
+
+module.exports = {
+    getAllTournaments,
+    getTournamentById,
+    createTournament,
+    startTournament,
+};

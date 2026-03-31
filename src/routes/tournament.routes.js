@@ -1,16 +1,11 @@
-import express from 'express'
-import {
-    getAllTournaments,
-    getTournamentById,
-    createTournament,
-    startTournament
-} from '../controllers/tournament.controller.js'
+const express = require('express');
+const router = express.Router();
+const tournamentController = require('../controllers/tournament.controller');
 
-const router = express.Router()
 
-router.get('/', getAllTournaments)
-router.get('/:id', getTournamentById)
-router.post('/', createTournament)
-router.patch('/:id/start', startTournament)
+router.get('/', tournamentController.getAllTournaments);
+router.get('/:id', tournamentController.getTournamentById);
+router.post('/', tournamentController.createTournament);
+router.patch('/:id/start', tournamentController.startTournament);
 
-export default router
+module.exports = router;

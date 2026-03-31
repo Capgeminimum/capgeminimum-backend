@@ -1,14 +1,16 @@
 {
   "dependencies": {
-    "express": "^5.2.1"
+    "@prisma/adapter-pg": "^7.6.0",
+    "@prisma/client": "^7.6.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "pg": "^8.20.0"
   },
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
-    "dotenv": "^17.3.1",
     "nodemon": "^3.1.14",
     "prisma": "^7.6.0"
   }
