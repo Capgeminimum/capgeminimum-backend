@@ -33,6 +33,7 @@ model games {
   score_player1 Int
   score_player2 Int
   played_at DateTime @default(now())
+  round Int @default(1)
   winner    Int
 }
 
