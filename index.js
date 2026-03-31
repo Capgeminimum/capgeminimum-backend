@@ -14,10 +14,9 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', project: 'Capgeminimum' })
 })
 
-// TODO: importer les routes ici au fur et à mesure
-// app.use('/api/players', require('./routes/players.routes'))
-// app.use('/api/games', require('./routes/games.routes'))
-app.use('/api/tournaments', require('./src/routes/tournament.routes'));
+app.use('/players', require('./src/routes/players.routes'))
+app.use('/games', require('./src/routes/games.routes'))
+app.use('/tournaments', require('./src/routes/tournaments.routes'))
 
 // Handler 404
 app.use((req, res) => {
