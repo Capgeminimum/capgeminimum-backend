@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
+    "smoke": "node scripts/smoke-test.js",
     "prisma:generate": "prisma generate"
   },
   "devDependencies": {
