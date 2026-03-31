@@ -36,9 +36,6 @@ function groupByRound(games) {
 async function getAllTournaments() {
     const tournaments = await prisma.tournament.findMany({
         orderBy: { date: 'desc' },
-        include: {
-            _count: { select: { participant: true } },
-        },
     });
 
     return tournaments.map((t) => ({
@@ -53,9 +50,6 @@ async function getAllTournaments() {
 async function getTournamentById(tournamentId) {
     const tournament = await prisma.tournament.findUnique({
         where: { id: tournamentId },
-        include: {
-            participant: true,
-        },
     });
 
     if (!tournament) {
@@ -64,8 +58,12 @@ async function getTournamentById(tournamentId) {
         throw error;
     }
 
+    const participants = await prisma.participant.findMany({
+        where: { tournament_id: tournamentId },
+    });
+
     const players = await prisma.player.findMany({
-        where: { id: { in: tournament.participant.map((p) => p.user_id) } },
+        where: { id: { in: participants.map((p) => p.user_id) } },
         select: { id: true, username: true },
     });
 
@@ -100,27 +98,32 @@ async function createTournament({ name, playerIds }) {
         throw error;
     }
 
-    const tournament = await prisma.tournament.create({
-        data: {
-            nb_participants: playerIds.length,
-            user_id: 0,
-            winner: '',
-            id_winner: 0,
-            elo_winner: 0,
-            participant: {
-                create: playerIds.map((id) => ({ user_id: id })),
+    const tournament = await prisma.$transaction(async (tx) => {
+        const createdTournament = await tx.tournament.create({
+            data: {
+                nb_participants: playerIds.length,
+                user_id: 0,
+                winner: '',
+                id_winner: 0,
+                elo_winner: 0,
             },
-        },
-        include: {
-            _count: { select: { participant: true } },
-        },
+        });
+
+        await tx.participant.createMany({
+            data: playerIds.map((id) => ({
+                tournament_id: createdTournament.id,
+                user_id: id,
+            })),
+        });
+
+        return createdTournament;
     });
 
     return {
         id: tournament.id,
         name: name ?? `Tournoi #${tournament.id}`,
         status: 'pending',
-        playerCount: tournament._count.participant,
+        playerCount: playerIds.length,
         createdAt: tournament.date,
     };
 }
@@ -128,7 +131,6 @@ async function createTournament({ name, playerIds }) {
 async function startTournament(tournamentId) {
     const tournament = await prisma.tournament.findUnique({
         where: { id: tournamentId },
-        include: { participant: true },
     });
 
     if (!tournament) {
@@ -136,6 +138,10 @@ async function startTournament(tournamentId) {
         error.statusCode = 404;
         throw error;
     }
+
+    const participants = await prisma.participant.findMany({
+        where: { tournament_id: tournamentId },
+    });
 
     const existingGames = await prisma.games.findFirst({
         where: { id_tournament: tournamentId },
@@ -148,7 +154,7 @@ async function startTournament(tournamentId) {
     }
 
     const players = await prisma.player.findMany({
-        where: { id: { in: tournament.participant.map((p) => p.user_id) } },
+        where: { id: { in: participants.map((p) => p.user_id) } },
         select: { id: true, username: true },
     });
 
@@ -163,7 +169,7 @@ async function startTournament(tournamentId) {
             id_player2: shuffled[i + 1].id,
             score_player1: 0,
             score_player2: 0,
-            winner: 0,
+            winner: null,
             round: 1,
         });
     }
