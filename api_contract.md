@@ -2,7 +2,7 @@
 
 > Ce document est la référence commune entre le backend et le frontend.  
 > Toute modification doit être discutée et validée avant d'être appliquée.  
-> Base URL : `http://localhost:3000/api`
+> Base URL : `http://localhost:3000`
 
 ---
 
@@ -12,6 +12,10 @@
 - Les dates sont en format ISO 8601 : `"2024-03-15T14:30:00Z"`
 - En cas d'erreur, la réponse contient toujours : `{ "error": "message explicite" }`
 - Codes HTTP utilisés : `200` OK, `201` Créé, `400` Mauvaise requête, `404` Introuvable, `500` Erreur serveur
+
+**Valeurs possibles de `status` :**
+- Game : `pending` | `ongoing` | `finished`
+- Tournament : `pending` | `ongoing` | `finished`
 
 ---
 
@@ -49,6 +53,32 @@ Retourne un joueur par son ID.
   "losses": 4,
   "createdAt": "2024-03-01T10:00:00Z"
 }
+```
+
+**Response 404**
+```json
+{ "error": "Player not found" }
+```
+
+---
+
+### GET `/players/:id/games`
+Retourne l'historique des matchs d'un joueur, triés du plus récent au plus ancien.
+
+**Response 200**
+```json
+[
+  {
+    "id": 1,
+    "opponent": { "id": 2, "username": "mario64" },
+    "scorePlayer": 10,
+    "scoreOpponent": 7,
+    "result": "win",
+    "oldElo": 1225,
+    "newElo": 1243,
+    "playedAt": "2024-03-15T14:30:00Z"
+  }
+]
 ```
 
 **Response 404**
@@ -101,8 +131,8 @@ Retourne la liste de tous les matchs.
     "player2": { "id": 2, "username": "mario64" },
     "scorePlayer1": 10,
     "scorePlayer2": 7,
+    "status": "finished",
     "winnerId": 1,
-    "eloChange": 18,
     "playedAt": "2024-03-15T14:30:00Z"
   }
 ]
@@ -121,10 +151,15 @@ Retourne un match par son ID.
   "player2": { "id": 2, "username": "mario64" },
   "scorePlayer1": 10,
   "scorePlayer2": 7,
+  "status": "finished",
   "winnerId": 1,
-  "eloChange": 18,
   "playedAt": "2024-03-15T14:30:00Z"
 }
+```
+
+**Response 404**
+```json
+{ "error": "Game not found" }
 ```
 
 ---
@@ -153,10 +188,16 @@ Crée et démarre un nouveau match entre deux joueurs.
 }
 ```
 
+**Response 400**
+```json
+{ "error": "Player not found" }
+```
+
 ---
 
 ### PATCH `/games/:id/end`
-Termine un match et déclenche le recalcul ELO.
+Termine un match et déclenche le recalcul ELO.  
+Si le match appartient à un tournoi, le bracket est automatiquement mis à jour — aucun appel supplémentaire nécessaire.
 
 **Body**
 ```json
@@ -169,11 +210,21 @@ Termine un match et déclenche le recalcul ELO.
 ```json
 {
   "id": 1,
+  "status": "finished",
   "winnerId": 1,
-  "eloChange": 18,
   "player1": { "id": 1, "username": "shadow99", "oldElo": 1243, "newElo": 1261 },
   "player2": { "id": 2, "username": "mario64", "oldElo": 1100, "newElo": 1082 }
 }
+```
+
+**Response 400**
+```json
+{ "error": "Game already finished" }
+```
+
+**Response 404**
+```json
+{ "error": "Game not found" }
 ```
 
 ---
@@ -215,7 +266,7 @@ Retourne un tournoi avec son bracket complet.
       "round": 1,
       "matches": [
         {
-          "matchId": 1,
+          "id": 1,
           "player1": { "id": 1, "username": "shadow99" },
           "player2": { "id": 2, "username": "mario64" },
           "winnerId": null,
@@ -225,6 +276,11 @@ Retourne un tournoi avec son bracket complet.
     }
   ]
 }
+```
+
+**Response 404**
+```json
+{ "error": "Tournament not found" }
 ```
 
 ---
@@ -271,7 +327,7 @@ Lance le tournoi et génère le bracket automatiquement.
       "round": 1,
       "matches": [
         {
-          "matchId": 1,
+          "id": 1,
           "player1": { "id": 1, "username": "shadow99" },
           "player2": { "id": 8, "username": "zeus42" },
           "winnerId": null,
@@ -281,6 +337,16 @@ Lance le tournoi et génère le bracket automatiquement.
     }
   ]
 }
+```
+
+**Response 400**
+```json
+{ "error": "Tournament already started" }
+```
+
+**Response 404**
+```json
+{ "error": "Tournament not found" }
 ```
 
 ---
